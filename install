@@ -1,0 +1,80 @@
+pip install streamlit
+import nltk
+import string
+import numpy as np
+import tensorflow as tf
+import streamlit as st
+from nltk.corpus import gutenberg
+from nltk.tokenize import word_tokenize
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Embedding, Dropout
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+# NLTK kütüphanesinden veri seti indirme
+nltk.download('gutenberg')
+nltk.download('punkt')
+
+# Gutenberg kitaplarından birini seçme (Jane Austen - Sense and Sensibility)
+data = gutenberg.raw('austen-sense.txt')
+
+# Veriyi ön işleme
+data = data.lower()  # Küçük harfe dönüştürme
+data = data.translate(str.maketrans("", "", string.punctuation))  # Noktalama işaretlerini kaldırma
+tokens = word_tokenize(data)  # Kelimelere ayırma
+
+# Tokenize edilmiş veriyi sayısal verilere dönüştürme
+word_index = {word: i+1 for i, word in enumerate(set(tokens))}  # Kelimeleri sayılara dönüştürme
+index_word = {i: word for word, i in word_index.items()}  # index -> word haritası oluşturma
+
+# Tokenize edilmiş veriyi sayısal verilere dönüştürme
+sequences = [word_index[word] for word in tokens if word in word_index]
+
+# Modelin giriş verisini hazırlama
+sequence_length = 50
+X = [sequences[i:i+sequence_length] for i in range(len(sequences)-sequence_length)]
+X = pad_sequences(X, padding='post')
+
+# Modelin çıktısını hazırlama
+y = sequences[sequence_length:]  # Çıktı verisi
+X = X[:len(y)]  # Girdi verisini eşleştirme
+
+# Modeli kurma
+model = Sequential()
+model.add(Embedding(input_dim=len(word_index)+1, output_dim=128, input_length=sequence_length))
+model.add(LSTM(128, return_sequences=True))
+model.add(LSTM(128))
+model.add(Dropout(0.2))
+model.add(Dense(len(word_index), activation='softmax'))
+
+# Modeli derleme
+model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+# Modeli eğitme
+model.fit(X, y, epochs=10, batch_size=64)
+
+# Yeni metin üretme fonksiyonu
+def generate_text(seed_text, model, word_index, index_word, sequence_length=50):
+    for _ in range(100):  # 100 kelimelik metin üret
+        tokenized_seed = word_tokenize(seed_text.lower())
+        tokenized_seed = [word_index[word] for word in tokenized_seed if word in word_index]
+        tokenized_seed = pad_sequences([tokenized_seed], maxlen=sequence_length, padding='post')
+        
+        pred = model.predict(tokenized_seed, verbose=0)
+        next_word_index = np.argmax(pred)
+        next_word = index_word[next_word_index]  # index -> word map'ini kullanarak kelimeyi bul
+        
+        seed_text += ' ' + next_word
+    return seed_text
+
+# Streamlit ile kullanıcıdan giriş almak ve metin üretmek
+st.title("Metin Üretici Uygulaması")
+st.write("Bu uygulama, Jane Austen'in Sense and Sensibility kitabından öğrenilen bir modelle metin üretir.")
+
+# Kullanıcıdan başlangıç metni al
+seed_text = st.text_input("Başlangıç cümlesi girin", "It was a sunny day")
+
+# Kullanıcı metin üretmek için butona tıkladığında
+if st.button("Metin Üret"):
+    generated_text = generate_text(seed_text, model, word_index, index_word)
+    st.write(generated_text)
+    streamlit run text_generator.py
